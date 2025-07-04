@@ -1,0 +1,61 @@
+{
+  "gridWidth": 5,
+  "gridHeight": 8,
+  "slithers": [
+    {
+      "color": 1,
+      "bodyPositions": [
+        {
+          "x": 3,
+          "y": 7,
+          "magnitude": 7.615773,
+          "sqrMagnitude": 58
+        },
+        {
+          "x": 3,
+          "y": 6,
+          "magnitude": 6.708204,
+          "sqrMagnitude": 45
+        },
+        {
+          "x": 3,
+          "y": 5,
+          "magnitude": 5.83095169,
+          "sqrMagnitude": 34
+        },
+        {
+          "x": 3,
+          "y": 4,
+          "magnitude": 5.0,
+          "sqrMagnitude": 25
+        },
+        {
+          "x": 4,
+          "y": 4,
+          "magnitude": 5.656854,
+          "sqrMagnitude": 32
+        }
+      ],
+      "interactors": []
+    },
+    {
+      "color": 1,
+      "bodyPositions": [
+        {
+          "x": 2,
+          "y": 7,
+          "magnitude": 7.28011,
+          "sqrMagnitude": 53
+        },
+        {
+          "x": 2,
+          "y": 6,
+          "magnitude": 6.3245554,
+          "sqrMagnitude": 40
+        }
+      ],
+      "interactors": []
+    }
+  ],
+  "holes": []
+}
