@@ -217,7 +217,11 @@ public class LevelEditorWindow : EditorWindow
         // Show instructions for Move tool
         if (currentTool == Tool.Move)
         {
-            EditorGUILayout.LabelField("Click and drag head (●H) or tail (●T) handles to move slithers", EditorStyles.miniLabel);
+            // Bold and colored instructions to make them more noticeable
+            GUIStyle instructionStyle = new GUIStyle(EditorStyles.boldLabel);
+            instructionStyle.normal.textColor = Color.blue;
+            EditorGUILayout.LabelField("Click the head (◉H) or tail (◉T) handles to move slithers", instructionStyle);
+            EditorGUILayout.LabelField("Green checkmarks (✓) show valid positions where you can move", EditorStyles.miniLabel);
         }
         
         float buttonSize = Mathf.Min(BUTTON_SIZE, (position.width * LAYOUT_WIDTH_RATIO - 20) / currentLevelData.gridWidth);
@@ -290,8 +294,23 @@ public class LevelEditorWindow : EditorWindow
         {
             EditorGUILayout.Space();
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField($"Dragging {(isDraggingHead ? "Head" : "Tail")} Handle", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Click on adjacent cell to move, or press Escape to cancel", EditorStyles.miniLabel);
+            
+            // Create a more attention-grabbing header
+            GUIStyle dragHeaderStyle = new GUIStyle(EditorStyles.boldLabel);
+            dragHeaderStyle.normal.textColor = Color.blue;
+            dragHeaderStyle.fontSize = 12;
+            
+            // Create a custom style for the box
+            GUI.backgroundColor = Color.Lerp(Color.white, Color.cyan, 0.2f);
+            
+            EditorGUILayout.LabelField($"DRAGGING {(isDraggingHead ? "HEAD" : "TAIL")} HANDLE", dragHeaderStyle);
+            
+            // More informative instructions
+            EditorGUILayout.LabelField("• Look for green checkmarks (✓) showing valid destinations", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("• Click on a green cell to move there", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("• Press Escape key to cancel", EditorStyles.miniLabel);
+            
+            GUI.backgroundColor = Color.white;
             EditorGUILayout.EndVertical();
         }
         // Hiển thị thông tin chi tiết về ô đang hover
@@ -526,18 +545,49 @@ public class LevelEditorWindow : EditorWindow
         text = "";
         
         // Show preview while dragging handle
-        if (isDraggingHandle && previewPositions.Contains(pos))
+        if (isDraggingHandle)
         {
-            int index = previewPositions.IndexOf(pos);
-            if (index == 0)
-                text = "H"; // Head
-            else if (index == previewPositions.Count - 1)
-                text = "T"; // Tail
-            else
-                text = (index + 1).ToString();
+            // Show cells that are valid destinations with a highlight
+            if (draggingSlither != null)
+            {
+                // For head dragging, check if the position is adjacent to current head
+                if (isDraggingHead && IsAdjacent(pos, draggingSlither.bodyPositions[0]) && 
+                    IsValidPosition(pos) && !IsPositionOccupiedByOther(pos, draggingSlither))
+                {
+                    // Valid destination for head
+                    if (!previewPositions.Contains(pos))
+                    {
+                        text = "✓";
+                        return Color.Lerp(Color.green, Color.white, 0.7f);
+                    }
+                }
+                // For tail dragging, check if the position is adjacent to current tail
+                else if (!isDraggingHead && IsAdjacent(pos, draggingSlither.bodyPositions[draggingSlither.bodyPositions.Count - 1]) && 
+                         IsValidPosition(pos) && !IsPositionOccupiedByOther(pos, draggingSlither))
+                {
+                    // Valid destination for tail
+                    if (!previewPositions.Contains(pos))
+                    {
+                        text = "✓";
+                        return Color.Lerp(Color.green, Color.white, 0.7f);
+                    }
+                }
+            }
+            
+            // Show actual preview of slither
+            if (previewPositions.Contains(pos))
+            {
+                int index = previewPositions.IndexOf(pos);
+                if (index == 0)
+                    text = "H"; // Head
+                else if (index == previewPositions.Count - 1)
+                    text = "T"; // Tail
+                else
+                    text = (index + 1).ToString();
                 
-            // Use a semi-transparent version of the slither color for preview
-            return Color.Lerp(draggingSlither.color.ToUnityColor(), Color.white, 0.5f);
+                // Make preview more visible and distinct
+                return Color.Lerp(draggingSlither.color.ToUnityColor(), Color.cyan, 0.4f);
+            }
         }
         
         if (isPaintingSlither && currentSlitherPoints.Contains(pos))
@@ -579,20 +629,26 @@ public class LevelEditorWindow : EditorWindow
             }
             else if (isHead)
             {
-                text = "H"; // Head
-                // Show handle indicator when Move tool is selected and slither is selected
+                // Show more visible handle indicator when Move tool is selected and slither is selected
                 if (currentTool == Tool.Move && slither == selectedSlither)
                 {
-                    text = "●H"; // Handle indicator
+                    text = "◉H"; // Handle indicator (larger and more visible)
+                }
+                else
+                {
+                    text = "H"; // Regular head indicator
                 }
             }
             else if (isTail)
             {
-                text = "T"; // Tail
-                // Show handle indicator when Move tool is selected and slither is selected
+                // Show more visible handle indicator when Move tool is selected and slither is selected
                 if (currentTool == Tool.Move && slither == selectedSlither)
                 {
-                    text = "●T"; // Handle indicator
+                    text = "◉T"; // Handle indicator (larger and more visible)
+                }
+                else
+                {
+                    text = "T"; // Regular tail indicator
                 }
             }
             else 
@@ -607,9 +663,13 @@ public class LevelEditorWindow : EditorWindow
                 // Đầu/đuôi sáng hơn, thân tối hơn khi được chọn
                 if (isHead || isTail)
                 {
-                    // Make handles more visible when in Move mode
+                    // Make handles much more prominent and obvious when in Move mode
                     if (currentTool == Tool.Move)
-                        return Color.cyan;
+                    {
+                        // Use a pulsating effect for the handles to draw attention
+                        float pulse = Mathf.PingPong(Time.realtimeSinceStartup * 2f, 1f);
+                        return Color.Lerp(Color.cyan, Color.white, pulse * 0.3f);
+                    }
                     else
                         return Color.yellow;
                 }
@@ -765,6 +825,98 @@ public class LevelEditorWindow : EditorWindow
 
             EditorGUILayout.EndVertical();
         }
+        
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Snake Management", EditorStyles.boldLabel);
+        
+        EditorGUILayout.BeginVertical("box");
+        
+        // Length increase controls
+        EditorGUILayout.LabelField("Increase Length:", EditorStyles.miniLabel);
+        EditorGUILayout.BeginHorizontal();
+        
+        if (GUILayout.Button("Add Head Segment", GUILayout.Height(25)))
+        {
+            AddSlitherSegment(true);
+        }
+        
+        if (GUILayout.Button("Add Tail Segment", GUILayout.Height(25)))
+        {
+            AddSlitherSegment(false);
+        }
+        
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.LabelField("Keyboard: Insert = Add Head, Page Down = Add Tail", EditorStyles.miniLabel);
+        
+        EditorGUILayout.Space();
+        
+        // Length reduction controls
+        EditorGUILayout.LabelField("Reduce Length:", EditorStyles.miniLabel);
+        EditorGUILayout.BeginHorizontal();
+        
+        bool disableSegmentButtons = selectedSlither.bodyPositions.Count <= 2;
+        EditorGUI.BeginDisabledGroup(disableSegmentButtons);
+        
+        if (GUILayout.Button("Remove Head Segment", GUILayout.Height(25)))
+        {
+            if (EditorUtility.DisplayDialog("Remove Head Segment", 
+                "Are you sure you want to remove the head segment of this snake?", "Yes", "Cancel"))
+            {
+                RemoveSlitherSegment(true);
+            }
+        }
+        
+        if (GUILayout.Button("Remove Tail Segment", GUILayout.Height(25)))
+        {
+            if (EditorUtility.DisplayDialog("Remove Tail Segment", 
+                "Are you sure you want to remove the tail segment of this snake?", "Yes", "Cancel"))
+            {
+                RemoveSlitherSegment(false);
+            }
+        }
+        
+        EditorGUI.EndDisabledGroup();
+        EditorGUILayout.EndHorizontal();
+        
+        if (disableSegmentButtons)
+        {
+            EditorGUILayout.HelpBox("Cannot reduce length: snake is already at minimum length (2 segments).", MessageType.Info);
+        }
+        else
+        {
+            EditorGUILayout.LabelField("Keyboard: Home = Remove Head, End = Remove Tail", EditorStyles.miniLabel);
+        }
+        
+        EditorGUILayout.Space();
+        
+        // Delete snake control
+        EditorGUILayout.LabelField("Delete Snake:", EditorStyles.miniLabel);
+        
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        
+        Color defaultBgColor = GUI.backgroundColor;
+        GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f); // Red color for delete button
+        
+        if (GUILayout.Button("Delete Entire Snake", GUILayout.Height(30), GUILayout.Width(200)))
+        {
+            if (EditorUtility.DisplayDialog("Delete Snake", 
+                "Are you sure you want to delete this snake and its matching hole?\nThis action cannot be undone!", "Delete", "Cancel"))
+            {
+                DeleteSelectedSlither();
+            }
+        }
+        
+        GUI.backgroundColor = defaultBgColor;
+        
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
+        
+        EditorGUILayout.LabelField("Keyboard: Shift+Delete = Delete Snake", EditorStyles.miniLabel);
+        
+        EditorGUILayout.EndVertical();
+        
+        EditorGUILayout.Space();
     }
 
     // --- FILE MANAGEMENT ---
@@ -1135,6 +1287,9 @@ public class LevelEditorWindow : EditorWindow
                         break;
                 }
             }
+            
+            // Process additional keyboard shortcuts for snake management
+            ProcessKeyboardShortcuts();
         }
     }
     
@@ -1149,7 +1304,11 @@ public class LevelEditorWindow : EditorWindow
         // Initialize preview with current positions
         previewPositions = new List<Vector2Int>(slither.bodyPositions);
         
-        Debug.Log($"Started dragging {(isDraggingHead ? "head" : "tail")} of slither");
+        string handleType = isDraggingHead ? "head" : "tail";
+        string slitherInfo = $"#{currentLevelData.slithers.IndexOf(slither) + 1} (Color: {slither.color})";
+        Debug.Log($"Started dragging {handleType} of slither {slitherInfo}");
+        
+        Repaint();
     }
     
     private void FinishHandleDrag(Vector2Int newPos)
@@ -1172,13 +1331,28 @@ public class LevelEditorWindow : EditorWindow
             Vector2Int currentHead = draggingSlither.bodyPositions[0];
             if (IsAdjacent(newPos, currentHead))
             {
+                // Store length for feedback message
+                int oldLength = draggingSlither.bodyPositions.Count;
+                
                 // Add new head segment
                 draggingSlither.bodyPositions.Insert(0, newPos);
+                
+                // Get the direction of movement for logging
+                string direction = GetDirectionName(newPos - currentHead);
                 
                 // Remove tail segment to maintain length (optional behavior)
                 if (draggingSlither.bodyPositions.Count > 3) // Keep minimum length
                 {
+                    Vector2Int removedTail = draggingSlither.bodyPositions[draggingSlither.bodyPositions.Count - 1];
                     draggingSlither.bodyPositions.RemoveAt(draggingSlither.bodyPositions.Count - 1);
+                    
+                    // Log the change instead of showing dialog
+                    Debug.Log($"Head moved {direction} to ({newPos.x}, {newPos.y}). Tail segment at ({removedTail.x}, {removedTail.y}) was removed to maintain length.");
+                }
+                else
+                {
+                    // Log the change instead of showing dialog
+                    Debug.Log($"Head moved {direction} to ({newPos.x}, {newPos.y}). Slither length increased from {oldLength} to {draggingSlither.bodyPositions.Count}.");
                 }
             }
             else
@@ -1194,13 +1368,28 @@ public class LevelEditorWindow : EditorWindow
             Vector2Int currentTail = draggingSlither.bodyPositions[draggingSlither.bodyPositions.Count - 1];
             if (IsAdjacent(newPos, currentTail))
             {
+                // Store length for feedback message
+                int oldLength = draggingSlither.bodyPositions.Count;
+                
                 // Add new tail segment
                 draggingSlither.bodyPositions.Add(newPos);
+                
+                // Get the direction of movement for logging
+                string direction = GetDirectionName(newPos - currentTail);
                 
                 // Remove head segment to maintain length (optional behavior)
                 if (draggingSlither.bodyPositions.Count > 3) // Keep minimum length
                 {
+                    Vector2Int removedHead = draggingSlither.bodyPositions[0];
                     draggingSlither.bodyPositions.RemoveAt(0);
+                    
+                    // Log the change instead of showing dialog
+                    Debug.Log($"Tail moved {direction} to ({newPos.x}, {newPos.y}). Head segment at ({removedHead.x}, {removedHead.y}) was removed to maintain length.");
+                }
+                else
+                {
+                    // Log the change instead of showing dialog
+                    Debug.Log($"Tail moved {direction} to ({newPos.x}, {newPos.y}). Slither length increased from {oldLength} to {draggingSlither.bodyPositions.Count}.");
                 }
             }
             else
@@ -1217,6 +1406,12 @@ public class LevelEditorWindow : EditorWindow
     
     private void CancelHandleDrag()
     {
+        if (isDraggingHandle)
+        {
+            // Show feedback when drag is cancelled
+            Debug.Log("Handle drag operation cancelled");
+        }
+        
         isDraggingHandle = false;
         isDraggingHead = false;
         draggingSlither = null;
@@ -1365,5 +1560,219 @@ public class LevelEditorWindow : EditorWindow
         }
         
         Repaint();
+    }
+
+    private string GetDirectionName(Vector2Int direction)
+    {
+        if (direction.x == 1 && direction.y == 0) return "right";
+        if (direction.x == -1 && direction.y == 0) return "left";
+        if (direction.x == 0 && direction.y == 1) return "up";
+        if (direction.x == 0 && direction.y == -1) return "down";
+        
+        return "in a new direction"; // Fallback for unexpected cases
+    }
+
+    private void DeleteSelectedSlither()
+    {
+        if (selectedSlither == null) return;
+        
+        // Find matching hole to delete as well
+        var matchingHole = currentLevelData.holes.FirstOrDefault(h => h.slitherId == selectedSlither.id);
+        if (matchingHole != null)
+        {
+            currentLevelData.holes.Remove(matchingHole);
+        }
+        
+        // Remove the slither
+        currentLevelData.slithers.Remove(selectedSlither);
+        selectedSlither = null;
+        
+        Repaint();
+    }
+    
+    private void RemoveSlitherSegment(bool removeHead)
+    {
+        if (selectedSlither == null) return;
+        
+        // Can't reduce below minimum length of 2 segments
+        if (selectedSlither.bodyPositions.Count <= 2)
+        {
+            Debug.LogWarning("Cannot reduce length: snake already at minimum length (2 segments)");
+            return;
+        }
+        
+        if (removeHead)
+        {
+            // Remove head (first segment)
+            selectedSlither.bodyPositions.RemoveAt(0);
+        }
+        else
+        {
+            // Remove tail (last segment)
+            selectedSlither.bodyPositions.RemoveAt(selectedSlither.bodyPositions.Count - 1);
+        }
+        
+        Repaint();
+    }
+    
+    private void AddSlitherSegment(bool addToHead)
+    {
+        if (selectedSlither == null) return;
+        
+        Vector2Int newPosition;
+        
+        if (addToHead)
+        {
+            // Add segment to head
+            Vector2Int currentHead = selectedSlither.bodyPositions[0];
+            Vector2Int direction = Vector2Int.zero;
+            
+            // Try to determine direction based on the second segment
+            if (selectedSlither.bodyPositions.Count > 1)
+            {
+                Vector2Int secondSegment = selectedSlither.bodyPositions[1];
+                direction = currentHead - secondSegment; // Direction from second to head
+            }
+            else
+            {
+                // Default direction if only one segment
+                direction = Vector2Int.up;
+            }
+            
+            newPosition = currentHead + direction;
+        }
+        else
+        {
+            // Add segment to tail
+            Vector2Int currentTail = selectedSlither.bodyPositions[selectedSlither.bodyPositions.Count - 1];
+            Vector2Int direction = Vector2Int.zero;
+            
+            // Try to determine direction based on the second-to-last segment
+            if (selectedSlither.bodyPositions.Count > 1)
+            {
+                Vector2Int secondLastSegment = selectedSlither.bodyPositions[selectedSlither.bodyPositions.Count - 2];
+                direction = currentTail - secondLastSegment; // Direction from second-to-last to tail
+            }
+            else
+            {
+                // Default direction if only one segment
+                direction = Vector2Int.down;
+            }
+            
+            newPosition = currentTail + direction;
+        }
+        
+        // Validate new position
+        if (!IsValidPosition(newPosition))
+        {
+            Debug.LogWarning($"Cannot add segment: position ({newPosition.x}, {newPosition.y}) is out of bounds");
+            return;
+        }
+        
+        if (IsPositionOccupiedByOther(newPosition, selectedSlither))
+        {
+            Debug.LogWarning($"Cannot add segment: position ({newPosition.x}, {newPosition.y}) is occupied");
+            return;
+        }
+        
+        // Check if the new position would overlap with the snake's own body
+        if (selectedSlither.bodyPositions.Contains(newPosition))
+        {
+            Debug.LogWarning($"Cannot add segment: position ({newPosition.x}, {newPosition.y}) overlaps with snake's own body");
+            return;
+        }
+        
+        // Add the segment
+        if (addToHead)
+        {
+            selectedSlither.bodyPositions.Insert(0, newPosition);
+            Debug.Log($"Added head segment at ({newPosition.x}, {newPosition.y}). Snake length increased to {selectedSlither.bodyPositions.Count}.");
+        }
+        else
+        {
+            selectedSlither.bodyPositions.Add(newPosition);
+            Debug.Log($"Added tail segment at ({newPosition.x}, {newPosition.y}). Snake length increased to {selectedSlither.bodyPositions.Count}.");
+        }
+        
+        Repaint();
+    }
+
+    private void ProcessKeyboardShortcuts()
+    {
+        Event e = Event.current;
+        
+        // Only process keyboard events
+        if (e.type != EventType.KeyDown) return;
+        
+        // Grid resizing shortcuts
+        if (e.control && e.keyCode == KeyCode.Plus || e.control && e.keyCode == KeyCode.KeypadPlus)
+        {
+            // Ctrl+Plus: Increase grid size
+            pendingWidth = Mathf.Min(pendingWidth + 1, 20);
+            pendingHeight = Mathf.Min(pendingHeight + 1, 20);
+            Repaint();
+            e.Use();
+        }
+        else if (e.control && e.keyCode == KeyCode.Minus || e.control && e.keyCode == KeyCode.KeypadMinus)
+        {
+            // Ctrl+Minus: Decrease grid size
+            pendingWidth = Mathf.Max(pendingWidth - 1, 3);
+            pendingHeight = Mathf.Max(pendingHeight - 1, 3);
+            Repaint();
+            e.Use();
+        }
+        
+        // Snake editing shortcuts (only if a snake is selected)
+        if (selectedSlither != null)
+        {
+            // Delete entire snake with Delete key + Shift
+            if (e.shift && e.keyCode == KeyCode.Delete)
+            {
+                if (EditorUtility.DisplayDialog("Delete Snake", 
+                    "Are you sure you want to delete this snake and its matching hole?\nThis action cannot be undone!", "Delete", "Cancel"))
+                {
+                    DeleteSelectedSlither();
+                    e.Use();
+                }
+            }
+            // Remove head segment with Home key
+            else if (e.keyCode == KeyCode.Home && selectedSlither.bodyPositions.Count > 2)
+            {
+                if (EditorUtility.DisplayDialog("Remove Head Segment", 
+                    "Are you sure you want to remove the head segment of this snake?", "Yes", "Cancel"))
+                {
+                    RemoveSlitherSegment(true);
+                    e.Use();
+                }
+            }
+            // Remove tail segment with End key
+            else if (e.keyCode == KeyCode.End && selectedSlither.bodyPositions.Count > 2)
+            {
+                if (EditorUtility.DisplayDialog("Remove Tail Segment", 
+                    "Are you sure you want to remove the tail segment of this snake?", "Yes", "Cancel"))
+                {
+                    RemoveSlitherSegment(false);
+                    e.Use();
+                }
+            }
+            // Add head segment with Insert key
+            else if (e.keyCode == KeyCode.Insert)
+            {
+                AddSlitherSegment(true);
+                e.Use();
+            }
+            // Add tail segment with Page Down key
+            else if (e.keyCode == KeyCode.PageDown)
+            {
+                AddSlitherSegment(false);
+                e.Use();
+            }
+            // Escape key to cancel drag
+            else if (e.keyCode == KeyCode.Escape && isDraggingHandle)
+            {
+                CancelHandleDrag();
+                e.Use();
+            }
+        }
     }
 }
