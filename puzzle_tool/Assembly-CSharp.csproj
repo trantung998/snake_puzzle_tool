@@ -67,6 +67,7 @@
     <Compile Include="Assets\LevelTool\Scripts\LevelEditorInspector.cs" />
     <Compile Include="Assets\LevelTool\Scripts\LevelEditorToolbar.cs" />
     <Compile Include="Assets\LevelTool\Scripts\LevelDataClasses.cs" />
+    <Compile Include="Assets\LevelTool\Scripts\Data\LevelData.cs" />
     <Compile Include="Assets\LevelTool\Scripts\LevelEditorGrid.cs" />
     <Compile Include="Assets\LevelTool\Scripts\SlitherInteractor.cs" />
     <Compile Include="Assets\LevelTool\Scripts\LevelEditorWindow.cs" />

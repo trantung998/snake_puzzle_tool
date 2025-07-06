@@ -141,26 +141,34 @@ public class LevelEditorToolbar
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("New Size:", GUILayout.Width(65));
         
-        int newWidth = EditorGUILayout.IntField(pendingWidth, GUILayout.Width(50));
-        EditorGUILayout.LabelField("x", GUILayout.Width(15));
-        int newHeight = EditorGUILayout.IntField(pendingHeight, GUILayout.Width(50));
+        // Color input fields red if they are out of range
+        bool widthOutOfRange = pendingWidth < 3 || pendingWidth > 20;
+        bool heightOutOfRange = pendingHeight < 3 || pendingHeight > 20;
         
-        // Clamp values
+        if (widthOutOfRange) GUI.color = Color.red;
+        int newWidth = EditorGUILayout.IntField(pendingWidth, GUILayout.Width(50));
+        if (widthOutOfRange) GUI.color = Color.white;
+        
+        EditorGUILayout.LabelField("x", GUILayout.Width(15));
+        
+        if (heightOutOfRange) GUI.color = Color.red;
+        int newHeight = EditorGUILayout.IntField(pendingHeight, GUILayout.Width(50));
+        if (heightOutOfRange) GUI.color = Color.white;
+        
+        // Clamp values and update pending values only if they changed
         int validWidth = Mathf.Clamp(newWidth, 3, 20);
         int validHeight = Mathf.Clamp(newHeight, 3, 20);
         
-        if (newWidth != validWidth) newWidth = validWidth;
-        if (newHeight != validHeight) newHeight = validHeight;
-        
-        pendingWidth = newWidth;
-        pendingHeight = newHeight;
+        // Update pending values only if there's actual change to avoid unnecessary updates
+        if (newWidth != pendingWidth) pendingWidth = validWidth;
+        if (newHeight != pendingHeight) pendingHeight = validHeight;
         
         EditorGUILayout.EndHorizontal();
         
         // Validation and buttons
         bool isValidInput = pendingWidth >= 3 && pendingWidth <= 20 && 
                            pendingHeight >= 3 && pendingHeight <= 20;
-        bool hasChanges = validWidth != levelData.gridWidth || validHeight != levelData.gridHeight;
+        bool hasChanges = pendingWidth != levelData.gridWidth || pendingHeight != levelData.gridHeight;
         
         if (!isValidInput)
         {
@@ -169,12 +177,12 @@ public class LevelEditorToolbar
         
         if (hasChanges)
         {
-            string buttonText = $"Resize to {validWidth}x{validHeight}";
+            string buttonText = $"Resize to {pendingWidth}x{pendingHeight}";
             
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(buttonText, GUILayout.Height(25)))
             {
-                OnGridResizeRequested?.Invoke(validWidth, validHeight);
+                OnGridResizeRequested?.Invoke(pendingWidth, pendingHeight);
             }
             if (GUILayout.Button("Reset", GUILayout.Width(60), GUILayout.Height(25)))
             {

@@ -19,6 +19,9 @@ public class LevelEditorWindow : EditorWindow
     private LevelData currentLevelData;
     private string currentPath = "";
     private Vector2 scrollPosition;
+    
+    // Component initialization tracking
+    private bool needsComponentReinitialization = false;
 
     // State management
     private SlitherPlacementData selectedSlither;
@@ -141,14 +144,18 @@ public class LevelEditorWindow : EditorWindow
             return;
         }
 
-        // Initialize components with current data
-        if (gridRenderer != null)
+        // Initialize components with current data (only when needed)
+        if (needsComponentReinitialization || gridRenderer == null || toolbar == null)
         {
-            gridRenderer.Initialize(currentLevelData);
-        }
-        if (toolbar != null)
-        {
-            toolbar.Initialize(currentLevelData);
+            if (gridRenderer != null)
+            {
+                gridRenderer.Initialize(currentLevelData);
+            }
+            if (toolbar != null)
+            {
+                toolbar.Initialize(currentLevelData);
+            }
+            needsComponentReinitialization = false;
         }
 
         // File toolbar
@@ -893,6 +900,7 @@ public class LevelEditorWindow : EditorWindow
         currentLevelData = new LevelData();
         currentPath = "";
         selectedSlither = null;
+        needsComponentReinitialization = true;
         
         // Reset all editing states
         isPaintingSlither = false;
@@ -910,6 +918,7 @@ public class LevelEditorWindow : EditorWindow
             currentLevelData = JsonDataService.Load(path);
             currentPath = path;
             selectedSlither = null;
+            needsComponentReinitialization = true;
             
             // Reset all editing states
             isPaintingSlither = false;
@@ -1109,6 +1118,15 @@ public class LevelEditorWindow : EditorWindow
             // Reset painting state
             isPaintingSlither = false;
             currentSlitherPoints.Clear();
+            
+            // Update toolbar pending size to match the new grid size
+            if (toolbar != null)
+            {
+                toolbar.SetPendingGridSize(newWidth, newHeight);
+            }
+            
+            // Mark components for reinitialization to reflect the new grid size
+            needsComponentReinitialization = true;
             
             Debug.Log($"Grid resized from {oldWidth}x{oldHeight} to {newWidth}x{newHeight}. Affected items: {affectedItems.Count}");
             Repaint();
