@@ -8,34 +8,25 @@ using System.IO;
 public class LevelEditorWindow : EditorWindow
 {
     // Constants
-    private const float BUTTON_SIZE = 40f;
-    private const int MIN_GRID_SIZE = 3;
-    private const int MAX_GRID_SIZE = 20;
     private const float LAYOUT_WIDTH_RATIO = 0.5f;
     
+    // Core components
+    private LevelEditorGrid gridRenderer;
+    private LevelEditorInspector inspector;
+    private LevelEditorToolbar toolbar;
+    
+    // Data and state
     private LevelData currentLevelData;
     private string currentPath = "";
     private Vector2 scrollPosition;
 
-    // Tool state
-    private enum Tool { None, Slither, Hole, Eraser, Move }
-    private Tool currentTool = Tool.None;
-
-    // Tool-specific properties
-    private SlitherColor selectedColor = SlitherColor.Red;
-
-    // Grid resize properties
-    private int pendingWidth;
-    private int pendingHeight;
-    private bool hasInitializedGridSize = false;
-
+    // State management
+    private SlitherPlacementData selectedSlither;
+    private Vector2Int? currentlyHoveredCell = null;
+    
     // State for painting slithers
     private bool isPaintingSlither = false;
     private List<Vector2Int> currentSlitherPoints = new List<Vector2Int>();
-    
-    // Inspector state
-    private SlitherPlacementData selectedSlither;
-    private Vector2Int? currentlyHoveredCell = null;
     
     // State for slither position editing
     private bool isDraggingHandle = false;
@@ -49,46 +40,197 @@ public class LevelEditorWindow : EditorWindow
         GetWindow<LevelEditorWindow>("Slither Level Editor");
     }
 
+    private void OnEnable()
+    {
+        // Initialize components
+        gridRenderer = new LevelEditorGrid();
+        inspector = new LevelEditorInspector();
+        toolbar = new LevelEditorToolbar();
+        
+        // Subscribe to events
+        SetupEventHandlers();
+    }
+    
+    private void OnDisable()
+    {
+        // Clean up event handlers
+        CleanupEventHandlers();
+    }
+    
+    private void SetupEventHandlers()
+    {
+        // Grid events
+        if (gridRenderer != null)
+        {
+            gridRenderer.OnCellClicked += HandleGridClick;
+            gridRenderer.OnCellHovered += HandleCellHovered;
+            gridRenderer.OnCellRightClicked += HandleGridRightClick;
+        }
+        
+        // Toolbar events
+        if (toolbar != null)
+        {
+            toolbar.OnNewLevel += CreateNewLevel;
+            toolbar.OnLoadLevel += LoadLevel;
+            toolbar.OnSaveLevel += SaveCurrentLevel;
+            toolbar.OnSaveAsLevel += SaveLevelAs;
+            toolbar.OnToolChanged += HandleToolChanged;
+            toolbar.OnColorChanged += HandleColorChanged;
+            toolbar.OnGridResizeRequested += ResizeGrid;
+        }
+        
+        // Inspector events
+        if (inspector != null)
+        {
+            inspector.OnSlitherColorChanged += UpdateMatchingHole;
+            inspector.OnSlitherDeleted += DeleteSelectedSlither;
+            inspector.OnSegmentRemoved += RemoveSlitherSegment;
+            inspector.OnSegmentAdded += AddSlitherSegment;
+            inspector.OnInteractorAdded += HandleInteractorAdded;
+            inspector.OnInteractorRemoved += HandleInteractorRemoved;
+        }
+    }
+    
+    private void CleanupEventHandlers()
+    {
+        // Grid events
+        if (gridRenderer != null)
+        {
+            gridRenderer.OnCellClicked -= HandleGridClick;
+            gridRenderer.OnCellHovered -= HandleCellHovered;
+            gridRenderer.OnCellRightClicked -= HandleGridRightClick;
+        }
+        
+        // Toolbar events
+        if (toolbar != null)
+        {
+            toolbar.OnNewLevel -= CreateNewLevel;
+            toolbar.OnLoadLevel -= LoadLevel;
+            toolbar.OnSaveLevel -= SaveCurrentLevel;
+            toolbar.OnSaveAsLevel -= SaveLevelAs;
+            toolbar.OnToolChanged -= HandleToolChanged;
+            toolbar.OnColorChanged -= HandleColorChanged;
+            toolbar.OnGridResizeRequested -= ResizeGrid;
+        }
+        
+        // Inspector events
+        if (inspector != null)
+        {
+            inspector.OnSlitherColorChanged -= UpdateMatchingHole;
+            inspector.OnSlitherDeleted -= DeleteSelectedSlither;
+            inspector.OnSegmentRemoved -= RemoveSlitherSegment;
+            inspector.OnSegmentAdded -= AddSlitherSegment;
+            inspector.OnInteractorAdded -= HandleInteractorAdded;
+            inspector.OnInteractorRemoved -= HandleInteractorRemoved;
+        }
+    }
+
     private void OnGUI()
     {
         // Handle keyboard shortcuts
         HandleKeyboardInput();
         
-        // --- File Management Toolbar ---
-        DrawFileToolbar();
-        
-        scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-
+        // Draw level editor interface
         if (currentLevelData == null)
         {
             EditorGUILayout.HelpBox("Load a level file or create a new one to begin.", MessageType.Info);
-            if (GUILayout.Button("Create New Level")) CreateNewLevel();
-            EditorGUILayout.EndScrollView();
+            if (GUILayout.Button("Create New Level"))
+            {
+                CreateNewLevel();
+            }
             return;
         }
 
-        // Initialize pending grid size if not done yet
-        if (!hasInitializedGridSize)
+        // Initialize components with current data
+        if (gridRenderer != null)
         {
-            pendingWidth = currentLevelData.gridWidth;
-            pendingHeight = currentLevelData.gridHeight;
-            hasInitializedGridSize = true;
+            gridRenderer.Initialize(currentLevelData);
+        }
+        if (toolbar != null)
+        {
+            toolbar.Initialize(currentLevelData);
         }
 
-        // --- Phần Tools và Grid/Inspector Layout ---
+        // File toolbar
+        EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+        if (GUILayout.Button("New", EditorStyles.toolbarButton)) CreateNewLevel();
+        if (GUILayout.Button("Load", EditorStyles.toolbarButton)) LoadLevel();
+        
+        string fileName = string.IsNullOrEmpty(currentPath) ? "Untitled" : Path.GetFileName(currentPath);
+        GUILayout.TextField(fileName, EditorStyles.toolbarTextField);
+        
+        if (GUILayout.Button("Save", EditorStyles.toolbarButton)) SaveCurrentLevel();
+        if (GUILayout.Button("Save As...", EditorStyles.toolbarButton)) SaveLevelAs();
+        EditorGUILayout.EndHorizontal();
+        
+        scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+
+        // Main layout
         EditorGUILayout.Space();
         EditorGUILayout.BeginHorizontal();
 
-        // --- Cột Trái: Tools và Grid ---
+        // Left column: Tools and Grid
         EditorGUILayout.BeginVertical(GUILayout.Width(position.width * LAYOUT_WIDTH_RATIO));
-        DrawToolbar();
+        
+        // Toolbar section
+        if (toolbar != null)
+        {
+            toolbar.DrawToolbar(currentLevelData);
+        }
+        
         EditorGUILayout.Space();
-        DrawGrid();
+        
+        // Grid section
+        EditorGUILayout.LabelField("Grid Editor", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField($"Current Grid: {currentLevelData.gridWidth} x {currentLevelData.gridHeight}", EditorStyles.miniLabel);
+        
+        // Calculate grid area for rendering
+        Rect gridRect = GUILayoutUtility.GetRect(0, 400, GUILayout.ExpandWidth(true));
+        if (gridRenderer != null)
+        {
+            // Update painting preview
+            if (isPaintingSlither)
+            {
+                gridRenderer.SetPaintingPositions(currentSlitherPoints);
+            }
+            else
+            {
+                gridRenderer.ClearPaintingPositions();
+            }
+            
+            gridRenderer.DrawGrid(gridRect, selectedSlither, isDraggingHandle, isDraggingHead, draggingSlither, previewPositions);
+        }
+        
+        // Grid overlay information
+        if (gridRenderer != null)
+        {
+            gridRenderer.DrawOverlay();
+        }
+        
         EditorGUILayout.EndVertical();
 
-        // --- Cột Phải: Inspector ---
+        // Right column: Inspector
         EditorGUILayout.BeginVertical("box", GUILayout.ExpandHeight(true));
-        DrawInspector();
+        
+        if (inspector != null)
+        {
+            Vector2Int? hoveredCell = gridRenderer?.GetHoveredCell();
+            inspector.DrawInspector(currentLevelData, selectedSlither, hoveredCell);
+        }
+        else
+        {
+            EditorGUILayout.LabelField("Inspector", EditorStyles.boldLabel);
+            if (selectedSlither != null)
+            {
+                EditorGUILayout.LabelField($"Selected Slither: {selectedSlither.color}");
+                EditorGUILayout.LabelField($"Segments: {selectedSlither.bodyPositions.Count}");
+            }
+            else
+            {
+                EditorGUILayout.LabelField("No selection");
+            }
+        }
+        
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndHorizontal();
@@ -126,199 +268,10 @@ public class LevelEditorWindow : EditorWindow
         EditorGUILayout.EndHorizontal();
     }
 
-    private void DrawToolbar()
-    {
-        EditorGUILayout.LabelField("Tools", EditorStyles.boldLabel);
-        currentTool = (Tool)GUILayout.Toolbar((int)currentTool, System.Enum.GetNames(typeof(Tool)));
 
-        if (currentTool == Tool.Slither || currentTool == Tool.Hole)
-        {
-            // Thay ColorField bằng Popup với enum SlitherColor
-            selectedColor = (SlitherColor)EditorGUILayout.EnumPopup("Color", selectedColor);
-            
-            // Hiển thị mẫu màu
-            EditorGUILayout.ColorField(GUIContent.none, selectedColor.ToUnityColor(), false, false, false, GUILayout.Width(40));
-        }
-        
-        // Grid Size Controls
-        EditorGUILayout.Space();
-        EditorGUILayout.LabelField("Grid Size", EditorStyles.boldLabel);
-        
-        EditorGUILayout.BeginVertical("box");
-        EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField("Width:", GUILayout.Width(45));
-        pendingWidth = EditorGUILayout.IntField(pendingWidth, GUILayout.Width(50));
-        EditorGUILayout.LabelField("Height:", GUILayout.Width(50));
-        pendingHeight = EditorGUILayout.IntField(pendingHeight, GUILayout.Width(50));
-        EditorGUILayout.EndHorizontal();
-        
-        // Validate grid size for display but don't clamp the pending values yet
-        int validWidth = Mathf.Clamp(pendingWidth, MIN_GRID_SIZE, MAX_GRID_SIZE);
-        int validHeight = Mathf.Clamp(pendingHeight, MIN_GRID_SIZE, MAX_GRID_SIZE);
-        
-        // Show validation info
-        bool isValidInput = (pendingWidth == validWidth && pendingHeight == validHeight);
-        if (!isValidInput)
-        {
-            EditorGUILayout.HelpBox($"Values will be clamped to range {MIN_GRID_SIZE}-{MAX_GRID_SIZE}", MessageType.Warning);
-        }
-        
-        // Hiển thị thông tin giới hạn
-        EditorGUILayout.LabelField($"Range: {MIN_GRID_SIZE}-{MAX_GRID_SIZE}", EditorStyles.miniLabel);
-        
-        // Hiển thị nút resize và trạng thái
-        bool hasChanges = validWidth != currentLevelData.gridWidth || validHeight != currentLevelData.gridHeight;
-        
-        EditorGUILayout.BeginHorizontal();
-        if (hasChanges)
-        {
-            GUI.backgroundColor = Color.yellow;
-            string buttonText = isValidInput ? 
-                $"Resize Grid to {validWidth}x{validHeight}" : 
-                $"Resize Grid to {validWidth}x{validHeight} (clamped)";
-            
-            if (GUILayout.Button(buttonText, GUILayout.Height(25)))
-            {
-                ResizeGrid(validWidth, validHeight);
-                // Update pending values to match actual values after resize
-                pendingWidth = validWidth;
-                pendingHeight = validHeight;
-            }
-            GUI.backgroundColor = Color.white;
-            
-            // Reset button when there are changes
-            if (GUILayout.Button("Reset", GUILayout.Width(60), GUILayout.Height(25)))
-            {
-                pendingWidth = currentLevelData.gridWidth;
-                pendingHeight = currentLevelData.gridHeight;
-            }
-        }
-        else
-        {
-            GUI.enabled = false;
-            GUILayout.Button($"Current: {currentLevelData.gridWidth}x{currentLevelData.gridHeight}", GUILayout.Height(25));
-            GUI.enabled = true;
-        }
-        EditorGUILayout.EndHorizontal();
-        
-        // Help text for shortcuts
-        EditorGUILayout.LabelField("Shortcuts: Ctrl+Plus/Minus to resize", EditorStyles.miniLabel);
-        
-        EditorGUILayout.EndVertical();
-    }
+    // REMOVED: DrawToolbar() - now handled by LevelEditorToolbar component
 
-    private void DrawGrid()
-    {
-        EditorGUILayout.LabelField("Grid Editor", EditorStyles.boldLabel);
-        
-        // Hiển thị thông tin grid hiện tại
-        EditorGUILayout.LabelField($"Current Grid: {currentLevelData.gridWidth} x {currentLevelData.gridHeight}", EditorStyles.miniLabel);
-        
-        // Show instructions for Move tool
-        if (currentTool == Tool.Move)
-        {
-            // Bold and colored instructions to make them more noticeable
-            GUIStyle instructionStyle = new GUIStyle(EditorStyles.boldLabel);
-            instructionStyle.normal.textColor = Color.blue;
-            EditorGUILayout.LabelField("Click the head (◉H) or tail (◉T) handles to move slithers", instructionStyle);
-            EditorGUILayout.LabelField("Green checkmarks (✓) show valid positions where you can move", EditorStyles.miniLabel);
-        }
-        
-        float buttonSize = Mathf.Min(BUTTON_SIZE, (position.width * LAYOUT_WIDTH_RATIO - 20) / currentLevelData.gridWidth);
-
-        // Thêm tooltip hiển thị tọa độ hiện tại
-        Vector2 mousePos = Event.current.mousePosition;
-        Vector2Int? localHoveredCell = null; // Use a local variable for calculation
-        
-        for (int y = currentLevelData.gridHeight - 1; y >= 0; y--)
-        {
-            GUILayout.BeginHorizontal();
-            for (int x = 0; x < currentLevelData.gridWidth; x++)
-            {
-                Vector2Int pos = new Vector2Int(x, y);
-                string buttonText;
-                Color buttonColor = GetCellDisplayColor(pos, out buttonText);
-
-                Rect buttonRect = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, 
-                    GUILayout.Width(buttonSize), GUILayout.Height(buttonSize));
-                
-                // Kiểm tra nếu chuột đang hover qua ô này
-                if (buttonRect.Contains(mousePos))
-                {
-                    localHoveredCell = pos;
-                    
-                    // Update drag preview if dragging handle
-                    if (isDraggingHandle)
-                    {
-                        UpdateHandleDragPreview(pos);
-                    }
-                    
-                    Repaint(); // Repaint to show info immediately
-                }
-
-                // Vẽ viền cho ô đang được hover
-                if (currentlyHoveredCell.HasValue && currentlyHoveredCell.Value == pos)
-                {
-                    EditorGUI.DrawRect(buttonRect, new Color(1, 1, 1, 0.3f));
-                }
-
-                // Vẽ button
-                GUI.backgroundColor = buttonColor;
-                if (GUI.Button(buttonRect, buttonText))
-                {
-                    HandleGridClick(pos);
-                }
-            }
-            GUILayout.EndHorizontal();
-        }
-        GUI.backgroundColor = Color.white;
-
-        // Handle escape key to cancel dragging
-        if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
-        {
-            if (isDraggingHandle)
-            {
-                CancelHandleDrag();
-                Event.current.Use();
-            }
-        }
-
-        // Only update the stored hovered cell during the Layout event
-        if (Event.current.type == EventType.Layout)
-        {
-            currentlyHoveredCell = localHoveredCell;
-        }
-
-        // Show dragging status
-        if (isDraggingHandle)
-        {
-            EditorGUILayout.Space();
-            EditorGUILayout.BeginVertical("box");
-            
-            // Create a more attention-grabbing header
-            GUIStyle dragHeaderStyle = new GUIStyle(EditorStyles.boldLabel);
-            dragHeaderStyle.normal.textColor = Color.blue;
-            dragHeaderStyle.fontSize = 12;
-            
-            // Create a custom style for the box
-            GUI.backgroundColor = Color.Lerp(Color.white, Color.cyan, 0.2f);
-            
-            EditorGUILayout.LabelField($"DRAGGING {(isDraggingHead ? "HEAD" : "TAIL")} HANDLE", dragHeaderStyle);
-            
-            // More informative instructions
-            EditorGUILayout.LabelField("• Look for green checkmarks (✓) showing valid destinations", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField("• Click on a green cell to move there", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField("• Press Escape key to cancel", EditorStyles.miniLabel);
-            
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndVertical();
-        }
-        // Hiển thị thông tin chi tiết về ô đang hover
-        else if (currentlyHoveredCell.HasValue)
-        {
-            DrawCellInfo(currentlyHoveredCell.Value);
-        }
-    }
+    // REMOVED: DrawGrid() - now handled by LevelEditorGrid component
     
     private void DrawCellInfo(Vector2Int pos)
     {
@@ -365,11 +318,12 @@ public class LevelEditorWindow : EditorWindow
         EditorGUILayout.EndVertical();
     }
     
+    // Event handler methods called by components
     private void HandleGridClick(Vector2Int pos)
     {
-        EditorUtility.SetDirty(this); // Mark window as dirty to ensure repaint
-
-        // Kiểm tra position có hợp lệ không
+        EditorUtility.SetDirty(this);
+        
+        // Validate position
         if (!IsValidPosition(pos))
         {
             return;
@@ -382,132 +336,143 @@ public class LevelEditorWindow : EditorWindow
             return;
         }
 
-        // Logic chọn Sâu
-        var slitherAtPos = currentLevelData.slithers.FirstOrDefault(s => s.bodyPositions.Contains(pos));
-        if (slitherAtPos != null && currentTool != Tool.Slither) // Don't select if in slither painting mode
-        {
-            selectedSlither = slitherAtPos;
-            isPaintingSlither = false;
-            currentSlitherPoints.Clear();
-            
-            // Handle Move tool - start dragging if clicking on head or tail
-            if (currentTool == Tool.Move)
-            {
-                int segmentIndex = slitherAtPos.bodyPositions.IndexOf(pos);
-                bool isHead = (segmentIndex == 0);
-                bool isTail = (segmentIndex == slitherAtPos.bodyPositions.Count - 1);
-                
-                if (isHead || isTail)
-                {
-                    StartHandleDrag(slitherAtPos, isHead);
-                }
-            }
-            
-            Repaint();
-            return;
-        }
+        // Get current tool from toolbar
+        var currentTool = toolbar?.GetCurrentTool() ?? LevelEditorToolbar.Tool.None;
+        var selectedColor = toolbar?.GetSelectedColor() ?? SlitherColor.Red;
 
-        // Logic công cụ
+        // Handle tool-based actions
         switch (currentTool)
         {
-            case Tool.Eraser:
+            case LevelEditorToolbar.Tool.Eraser:
+                // Remove any object at this position
                 currentLevelData.ClearCell(pos);
+                selectedSlither = null;
                 break;
-            case Tool.Hole:
+                
+            case LevelEditorToolbar.Tool.Hole:
+                // Place a hole
                 currentLevelData.ClearCell(pos);
                 currentLevelData.holes.Add(new HolePlacementData { position = pos, color = selectedColor });
+                selectedSlither = null;
                 break;
-            case Tool.Slither:
-                HandleSlitherPainting(pos);
+                
+            case LevelEditorToolbar.Tool.Slither:
+                // Start or continue slither painting
+                HandleSlitherPainting(pos, selectedColor);
                 break;
-            case Tool.Move:
-                // Move tool doesn't create new objects, only moves existing ones
+                
+            case LevelEditorToolbar.Tool.Move:
+            case LevelEditorToolbar.Tool.None:
+            default:
+                // Select/move mode - select slither if clicking on one
+                var slitherAtPos = currentLevelData.slithers.FirstOrDefault(s => s.bodyPositions.Contains(pos));
+                if (slitherAtPos != null)
+                {
+                    selectedSlither = slitherAtPos;
+                    isPaintingSlither = false;
+                    currentSlitherPoints.Clear();
+                    
+                    // Check if clicking on head or tail for potential dragging
+                    int segmentIndex = slitherAtPos.bodyPositions.IndexOf(pos);
+                    bool isHead = (segmentIndex == 0);
+                    bool isTail = (segmentIndex == slitherAtPos.bodyPositions.Count - 1);
+                    
+                    if ((isHead || isTail) && currentTool == LevelEditorToolbar.Tool.Move)
+                    {
+                        StartHandleDrag(slitherAtPos, isHead);
+                    }
+                    
+                    Debug.Log($"Selected slither {(isHead ? "head" : isTail ? "tail" : "body")} at ({pos.x}, {pos.y})");
+                }
+                else
+                {
+                    // Deselect if clicking on empty space
+                    selectedSlither = null;
+                }
                 break;
-        }
-        
-        // Bỏ chọn nếu click vào ô trống
-        if (slitherAtPos == null)
-        {
-            selectedSlither = null;
         }
 
         Repaint();
     }
     
-    private void HandleSlitherPainting(Vector2Int pos)
+    /// <summary>
+    /// Handle slither painting functionality
+    /// </summary>
+    private void HandleSlitherPainting(Vector2Int pos, SlitherColor color)
     {
-        // Kiểm tra position có hợp lệ không
-        if (!IsValidPosition(pos))
-        {
-            if (isPaintingSlither) FinishSlitherPainting();
-            return;
-        }
-        
-        // Không cho vẽ đè lên các đối tượng khác.
-        // Sửa lỗi: Bỏ đi phép so sánh không hợp lệ giữa SlitherPlacementData và List<Vector2Int>.
-        // Khi đang vẽ, con rắn mới chưa có trong list `slithers` nên chỉ cần kiểm tra sự tồn tại là đủ.
+        // Don't allow painting over existing objects
         if (IsPositionOccupied(pos))
         {
-             if (isPaintingSlither) FinishSlitherPainting();
-             return;
+            if (isPaintingSlither) FinishSlitherPainting(color);
+            return;
         }
 
-        if (!isPaintingSlither) // Bắt đầu vẽ
+        if (!isPaintingSlither)
         {
+            // Start painting
             isPaintingSlither = true;
             currentSlitherPoints.Clear();
             currentSlitherPoints.Add(pos);
-            selectedSlither = null; // Clear selection
+            selectedSlither = null;
         }
-        else // Tiếp tục vẽ
+        else
         {
+            // Continue painting
             Vector2Int lastPoint = currentSlitherPoints.Last();
-            if (Mathf.Abs(pos.x - lastPoint.x) + Mathf.Abs(pos.y - lastPoint.y) == 1 && !currentSlitherPoints.Contains(pos))
+            if (IsAdjacent(pos, lastPoint) && !currentSlitherPoints.Contains(pos))
             {
                 currentSlitherPoints.Add(pos);
             }
-            else // Click không hợp lệ, kết thúc vẽ
+            else
             {
-                FinishSlitherPainting();
+                // Invalid placement, finish current slither
+                FinishSlitherPainting(color);
             }
         }
     }
-
-    private void FinishSlitherPainting()
+    
+    /// <summary>
+    /// Finish painting a slither
+    /// </summary>
+    private void FinishSlitherPainting(SlitherColor color)
     {
-        if (currentSlitherPoints.Count < 2) {
+        if (currentSlitherPoints.Count < 2)
+        {
             Debug.LogWarning("A slither needs at least 2 points.");
-            isPaintingSlither = false; // Reset painting state
+            isPaintingSlither = false;
             currentSlitherPoints.Clear();
             return;
         }
 
         if (currentSlitherPoints.Count > 0)
         {
-            // Tạo rắn mới với ID ngẫu nhiên
+            // Create new slither
             var newSlither = new SlitherPlacementData
             {
                 bodyPositions = new List<Vector2Int>(currentSlitherPoints),
-                color = selectedColor,
+                color = color,
                 interactors = new List<SlitherInteractor>()
             };
             currentLevelData.slithers.Add(newSlither);
             selectedSlither = newSlither;
             
-            // Tạo hố tương ứng với cùng màu và ID của rắn
-            CreateMatchingHole(selectedColor, newSlither.id);
+            // Create matching hole
+            CreateMatchingHole(color, newSlither.id);
         }
+        
         isPaintingSlither = false;
         currentSlitherPoints.Clear();
     }
     
-    // Create a matching hole for the slither ID
+    /// <summary>
+    /// Create a matching hole for a slither
+    /// </summary>
     private void CreateMatchingHole(SlitherColor color, string slitherId)
     {
         // Find an empty position to place the hole
         Vector2Int holePosition = FindEmptyPosition();
         
-        // Create a new hole
+        // Create the hole
         currentLevelData.holes.Add(new HolePlacementData 
         { 
             position = holePosition, 
@@ -515,8 +480,34 @@ public class LevelEditorWindow : EditorWindow
             slitherId = slitherId
         });
         
-        Debug.Log($"Created a hole with color {color} at {holePosition} for slither ID: {slitherId}");
+        Debug.Log($"Created matching hole for slither {slitherId} at position ({holePosition.x}, {holePosition.y})");
     }
+    
+    private void HandleCellHovered(Vector2Int pos)
+    {
+        currentlyHoveredCell = pos;
+        
+        // Update drag preview if dragging handle
+        if (isDraggingHandle)
+        {
+            UpdateHandleDragPreview(pos);
+        }
+        
+        Repaint();
+    }
+    
+    private void HandleGridRightClick(Vector2Int pos)
+    {
+        // Handle right-click operations
+        EditorUtility.SetDirty(this);
+        Repaint();
+    }
+    
+    // REMOVED: HandleSlitherPainting() - now handled by grid component
+
+    // REMOVED: FinishSlitherPainting() - now handled by grid component
+    
+    // REMOVED: Duplicate CreateMatchingHole method
     
     // Find an empty position on the grid
     private Vector2Int FindEmptyPosition()
@@ -601,7 +592,7 @@ public class LevelEditorWindow : EditorWindow
             else
                 text = (index + 1).ToString();
                 
-            return selectedColor.ToUnityColor();
+            return SlitherColor.Red.ToUnityColor(); // Default color for painting
         }
         
         var hole = currentLevelData.holes.FirstOrDefault(h => h.position == pos);
@@ -629,27 +620,11 @@ public class LevelEditorWindow : EditorWindow
             }
             else if (isHead)
             {
-                // Show more visible handle indicator when Move tool is selected and slither is selected
-                if (currentTool == Tool.Move && slither == selectedSlither)
-                {
-                    text = "◉H"; // Handle indicator (larger and more visible)
-                }
-                else
-                {
-                    text = "H"; // Regular head indicator
-                }
+                text = "H"; // Head indicator
             }
             else if (isTail)
             {
-                // Show more visible handle indicator when Move tool is selected and slither is selected
-                if (currentTool == Tool.Move && slither == selectedSlither)
-                {
-                    text = "◉T"; // Handle indicator (larger and more visible)
-                }
-                else
-                {
-                    text = "T"; // Regular tail indicator
-                }
+                text = "T"; // Tail indicator
             }
             else 
             {
@@ -663,15 +638,7 @@ public class LevelEditorWindow : EditorWindow
                 // Đầu/đuôi sáng hơn, thân tối hơn khi được chọn
                 if (isHead || isTail)
                 {
-                    // Make handles much more prominent and obvious when in Move mode
-                    if (currentTool == Tool.Move)
-                    {
-                        // Use a pulsating effect for the handles to draw attention
-                        float pulse = Mathf.PingPong(Time.realtimeSinceStartup * 2f, 1f);
-                        return Color.Lerp(Color.cyan, Color.white, pulse * 0.3f);
-                    }
-                    else
-                        return Color.yellow;
+                    return Color.yellow;
                 }
                 else
                     return Color.Lerp(slither.color.ToUnityColor(), Color.yellow, 0.3f);
@@ -927,11 +894,6 @@ public class LevelEditorWindow : EditorWindow
         currentPath = "";
         selectedSlither = null;
         
-        // Reset grid size pending values
-        pendingWidth = currentLevelData.gridWidth;
-        pendingHeight = currentLevelData.gridHeight;
-        hasInitializedGridSize = true;
-        
         // Reset all editing states
         isPaintingSlither = false;
         currentSlitherPoints.Clear();
@@ -948,11 +910,6 @@ public class LevelEditorWindow : EditorWindow
             currentLevelData = JsonDataService.Load(path);
             currentPath = path;
             selectedSlither = null;
-            
-            // Reset grid size pending values
-            pendingWidth = currentLevelData.gridWidth;
-            pendingHeight = currentLevelData.gridHeight;
-            hasInitializedGridSize = true;
             
             // Reset all editing states
             isPaintingSlither = false;
@@ -1251,45 +1208,21 @@ public class LevelEditorWindow : EditorWindow
         Event e = Event.current;
         if (e.type == EventType.KeyDown && currentLevelData != null)
         {
-            // Shortcuts for quick grid resizing
-            if (e.control)
+            // Basic keyboard shortcuts will be handled by components
+            // For now, just handle escape to cancel operations
+            if (e.keyCode == KeyCode.Escape)
             {
-                switch (e.keyCode)
+                if (isDraggingHandle)
                 {
-                    case KeyCode.Plus:
-                    case KeyCode.KeypadPlus:
-                        // Tăng kích thước grid
-                        int newWidth = Mathf.Min(currentLevelData.gridWidth + 1, MAX_GRID_SIZE);
-                        int newHeight = Mathf.Min(currentLevelData.gridHeight + 1, MAX_GRID_SIZE);
-                        if (newWidth != currentLevelData.gridWidth || newHeight != currentLevelData.gridHeight)
-                        {
-                            ResizeGrid(newWidth, newHeight);
-                            // Update pending values
-                            pendingWidth = newWidth;
-                            pendingHeight = newHeight;
-                            e.Use();
-                        }
-                        break;
-                        
-                    case KeyCode.Minus:
-                    case KeyCode.KeypadMinus:
-                        // Giảm kích thước grid
-                        int shrinkWidth = Mathf.Max(currentLevelData.gridWidth - 1, MIN_GRID_SIZE);
-                        int shrinkHeight = Mathf.Max(currentLevelData.gridHeight - 1, MIN_GRID_SIZE);
-                        if (shrinkWidth != currentLevelData.gridWidth || shrinkHeight != currentLevelData.gridHeight)
-                        {
-                            ResizeGrid(shrinkWidth, shrinkHeight);
-                            // Update pending values
-                            pendingWidth = shrinkWidth;
-                            pendingHeight = shrinkHeight;
-                            e.Use();
-                        }
-                        break;
+                    CancelHandleDrag();
+                    e.Use();
+                }
+                if (isPaintingSlither)
+                {
+                    CancelPainting();
+                    e.Use();
                 }
             }
-            
-            // Process additional keyboard shortcuts for snake management
-            ProcessKeyboardShortcuts();
         }
     }
     
@@ -1697,82 +1630,44 @@ public class LevelEditorWindow : EditorWindow
         Repaint();
     }
 
-    private void ProcessKeyboardShortcuts()
+    // REMOVED: ProcessKeyboardShortcuts() - will be handled by components
+
+    // Event handlers for component communication
+    
+    private void HandleToolChanged(LevelEditorToolbar.Tool tool)
     {
-        Event e = Event.current;
+        // Cancel any ongoing operations when tool changes
+        CancelPainting();
+        CancelHandleDrag();
         
-        // Only process keyboard events
-        if (e.type != EventType.KeyDown) return;
-        
-        // Grid resizing shortcuts
-        if (e.control && e.keyCode == KeyCode.Plus || e.control && e.keyCode == KeyCode.KeypadPlus)
+        Debug.Log($"Tool changed to: {tool}");
+        Repaint();
+    }
+    
+    private void HandleColorChanged(SlitherColor color)
+    {
+        Debug.Log($"Color changed to: {color}");
+        Repaint();
+    }
+    
+    private void HandleInteractorAdded(SlitherInteractor interactor)
+    {
+        Debug.Log($"Added interactor: {interactor.GetType().Name}");
+        Repaint();
+    }
+    
+    private void HandleInteractorRemoved(SlitherInteractor interactor)
+    {
+        Debug.Log($"Removed interactor: {interactor.GetType().Name}");
+        Repaint();
+    }
+    
+    private void CancelPainting()
+    {
+        if (isPaintingSlither)
         {
-            // Ctrl+Plus: Increase grid size
-            pendingWidth = Mathf.Min(pendingWidth + 1, 20);
-            pendingHeight = Mathf.Min(pendingHeight + 1, 20);
-            Repaint();
-            e.Use();
-        }
-        else if (e.control && e.keyCode == KeyCode.Minus || e.control && e.keyCode == KeyCode.KeypadMinus)
-        {
-            // Ctrl+Minus: Decrease grid size
-            pendingWidth = Mathf.Max(pendingWidth - 1, 3);
-            pendingHeight = Mathf.Max(pendingHeight - 1, 3);
-            Repaint();
-            e.Use();
-        }
-        
-        // Snake editing shortcuts (only if a snake is selected)
-        if (selectedSlither != null)
-        {
-            // Delete entire snake with Delete key + Shift
-            if (e.shift && e.keyCode == KeyCode.Delete)
-            {
-                if (EditorUtility.DisplayDialog("Delete Snake", 
-                    "Are you sure you want to delete this snake and its matching hole?\nThis action cannot be undone!", "Delete", "Cancel"))
-                {
-                    DeleteSelectedSlither();
-                    e.Use();
-                }
-            }
-            // Remove head segment with Home key
-            else if (e.keyCode == KeyCode.Home && selectedSlither.bodyPositions.Count > 2)
-            {
-                if (EditorUtility.DisplayDialog("Remove Head Segment", 
-                    "Are you sure you want to remove the head segment of this snake?", "Yes", "Cancel"))
-                {
-                    RemoveSlitherSegment(true);
-                    e.Use();
-                }
-            }
-            // Remove tail segment with End key
-            else if (e.keyCode == KeyCode.End && selectedSlither.bodyPositions.Count > 2)
-            {
-                if (EditorUtility.DisplayDialog("Remove Tail Segment", 
-                    "Are you sure you want to remove the tail segment of this snake?", "Yes", "Cancel"))
-                {
-                    RemoveSlitherSegment(false);
-                    e.Use();
-                }
-            }
-            // Add head segment with Insert key
-            else if (e.keyCode == KeyCode.Insert)
-            {
-                AddSlitherSegment(true);
-                e.Use();
-            }
-            // Add tail segment with Page Down key
-            else if (e.keyCode == KeyCode.PageDown)
-            {
-                AddSlitherSegment(false);
-                e.Use();
-            }
-            // Escape key to cancel drag
-            else if (e.keyCode == KeyCode.Escape && isDraggingHandle)
-            {
-                CancelHandleDrag();
-                e.Use();
-            }
+            isPaintingSlither = false;
+            currentSlitherPoints.Clear();
         }
     }
 }
