@@ -37,6 +37,12 @@ public class LevelEditorWindow : EditorWindow
     private SlitherPlacementData draggingSlither = null;
     private List<Vector2Int> previewPositions = new List<Vector2Int>();
 
+    // State for hole dragging
+    private bool isDraggingHole = false;
+    private HolePlacementData draggingHole = null;
+    private Vector2Int originalHolePosition;
+    private Vector2Int? previewHolePosition = null;
+
     [MenuItem("Tools/Slither Level Editor")]
     public static void ShowWindow()
     {
@@ -68,6 +74,9 @@ public class LevelEditorWindow : EditorWindow
             gridRenderer.OnCellClicked += HandleGridClick;
             gridRenderer.OnCellHovered += HandleCellHovered;
             gridRenderer.OnCellRightClicked += HandleGridRightClick;
+            gridRenderer.OnHoleDragStarted += HandleHoleDragStarted;
+            gridRenderer.OnHoleDragUpdated += HandleHoleDragUpdated;
+            gridRenderer.OnHoleDragEnded += HandleHoleDragEnded;
         }
         
         // Toolbar events
@@ -102,6 +111,9 @@ public class LevelEditorWindow : EditorWindow
             gridRenderer.OnCellClicked -= HandleGridClick;
             gridRenderer.OnCellHovered -= HandleCellHovered;
             gridRenderer.OnCellRightClicked -= HandleGridRightClick;
+            gridRenderer.OnHoleDragStarted -= HandleHoleDragStarted;
+            gridRenderer.OnHoleDragUpdated -= HandleHoleDragUpdated;
+            gridRenderer.OnHoleDragEnded -= HandleHoleDragEnded;
         }
         
         // Toolbar events
@@ -205,7 +217,7 @@ public class LevelEditorWindow : EditorWindow
                 gridRenderer.ClearPaintingPositions();
             }
             
-            gridRenderer.DrawGrid(gridRect, selectedSlither, isDraggingHandle, isDraggingHead, draggingSlither, previewPositions);
+            gridRenderer.DrawGrid(gridRect, selectedSlither, isDraggingHandle, isDraggingHead, draggingSlither, previewPositions, isDraggingHole, previewHolePosition);
         }
         
         // Grid overlay information
@@ -1687,5 +1699,102 @@ public class LevelEditorWindow : EditorWindow
             isPaintingSlither = false;
             currentSlitherPoints.Clear();
         }
+    }
+    
+    private void HandleHoleDragStarted(HolePlacementData hole, Vector2Int startPosition)
+    {
+        if (hole != null)
+        {
+            isDraggingHole = true;
+            draggingHole = hole;
+            originalHolePosition = hole.position;
+            previewHolePosition = startPosition;
+            
+            Debug.Log($"Started dragging hole at ({startPosition.x}, {startPosition.y})");
+            Repaint();
+        }
+    }
+    
+    private void HandleHoleDragUpdated(Vector2Int newPosition)
+    {
+        if (isDraggingHole && draggingHole != null)
+        {
+            // Check if the new position is valid (not occupied by slither or another hole)
+            bool isValidPosition = IsValidHolePosition(newPosition, draggingHole);
+            
+            if (isValidPosition)
+            {
+                previewHolePosition = newPosition;
+                
+                // Update grid preview
+                if (gridRenderer != null)
+                {
+                    gridRenderer.UpdateHolePreview(newPosition);
+                }
+            }
+            
+            Repaint();
+        }
+    }
+    
+    private void HandleHoleDragEnded()
+    {
+        if (isDraggingHole && draggingHole != null)
+        {
+            // Check if the preview position is valid
+            if (previewHolePosition.HasValue && IsValidHolePosition(previewHolePosition.Value, draggingHole))
+            {
+                Vector2Int oldPosition = draggingHole.position;
+                draggingHole.position = previewHolePosition.Value;
+                
+                Debug.Log($"Moved hole from ({oldPosition.x}, {oldPosition.y}) to ({previewHolePosition.Value.x}, {previewHolePosition.Value.y})");
+            }
+            else
+            {
+                Debug.LogWarning("Cannot place hole at invalid position - drag cancelled");
+            }
+            
+            // End dragging state
+            isDraggingHole = false;
+            draggingHole = null;
+            previewHolePosition = null;
+            
+            if (gridRenderer != null)
+            {
+                gridRenderer.EndHoleDragging();
+            }
+            
+            Repaint();
+        }
+    }
+    
+    private bool IsValidHolePosition(Vector2Int position, HolePlacementData excludeHole = null)
+    {
+        // Check if position is within grid bounds
+        if (position.x < 0 || position.x >= currentLevelData.gridWidth ||
+            position.y < 0 || position.y >= currentLevelData.gridHeight)
+        {
+            return false;
+        }
+        
+        // Check if position is occupied by any slither
+        foreach (var slither in currentLevelData.slithers)
+        {
+            if (slither.bodyPositions.Contains(position))
+            {
+                return false;
+            }
+        }
+        
+        // Check if position is occupied by another hole (excluding the one being moved)
+        foreach (var hole in currentLevelData.holes)
+        {
+            if (hole != excludeHole && hole.position == position)
+            {
+                return false;
+            }
+        }
+        
+        return true;
     }
 }

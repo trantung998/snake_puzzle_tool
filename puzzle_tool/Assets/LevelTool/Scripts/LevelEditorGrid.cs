@@ -23,10 +23,20 @@ public class LevelEditorGrid
     // State for painting preview
     private List<Vector2Int> paintingPositions = new List<Vector2Int>();
     
+    // State for hole dragging
+    private bool isDraggingHole = false;
+    private HolePlacementData draggingHole = null;
+    private Vector2Int? holePreviewPosition = null;
+    
     // Events for communication with main window
     public System.Action<Vector2Int> OnCellClicked;
     public System.Action<Vector2Int> OnCellHovered;
     public System.Action<Vector2Int> OnCellRightClicked;
+    
+    // Events for hole dragging
+    public System.Action<HolePlacementData, Vector2Int> OnHoleDragStarted;
+    public System.Action<Vector2Int> OnHoleDragUpdated;
+    public System.Action OnHoleDragEnded;
     
     /// <summary>
     /// Initialize the grid with level data
@@ -41,54 +51,54 @@ public class LevelEditorGrid
     /// <summary>
     /// Main drawing method called from OnGUI
     /// </summary>
-    public void DrawGrid(Rect area, SlitherPlacementData selectedSlither, bool isDraggingHandle, bool isDraggingHead, SlitherPlacementData draggingSlither, List<Vector2Int> previewPositions = null)
+    public void DrawGrid(Rect area, SlitherPlacementData selectedSlither, bool isDraggingHandle, bool isDraggingHead, SlitherPlacementData draggingSlither, List<Vector2Int> previewPositions = null, bool isHoleDragging = false, Vector2Int? holePreview = null)
     {
         if (levelData == null) 
         {
-            Debug.LogWarning("LevelEditorGrid: levelData is null, cannot draw grid");
+            EditorGUI.LabelField(area, "No level data loaded");
             return;
         }
         
-
-        
-        // Update preview positions if provided
         if (previewPositions != null)
         {
-            this.previewPositions = new List<Vector2Int>(previewPositions);
+            this.previewPositions = previewPositions;
         }
         
-        // Calculate button size based on available space
-        float buttonSize = Mathf.Min(BUTTON_SIZE, area.width / levelData.gridWidth, area.height / levelData.gridHeight);
+        // Update hole dragging state
+        if (isHoleDragging && holePreview.HasValue)
+        {
+            this.isDraggingHole = isHoleDragging;
+            this.holePreviewPosition = holePreview;
+        }
         
-        // Calculate grid offset to center it
-        float gridWidth = buttonSize * levelData.gridWidth;
-        float gridHeight = buttonSize * levelData.gridHeight;
-        float offsetX = area.x + (area.width - gridWidth) * 0.5f;
-        float offsetY = area.y + (area.height - gridHeight) * 0.5f;
+        // Calculate grid rendering parameters
+        float buttonSize = BUTTON_SIZE;
+        float gridWidth = levelData.gridWidth * buttonSize;
+        float gridHeight = levelData.gridHeight * buttonSize;
         
-
+        // Center the grid in the available area
+        float offsetX = (area.width - gridWidth) * 0.5f;
+        float offsetY = (area.height - gridHeight) * 0.5f;
         
-        // Draw grid cells using manual positioning
+        // Handle mouse events for both slither and hole dragging
+        HandleMouseEvents(area, buttonSize, offsetX, offsetY);
+        
+        // Draw grid cells
         for (int y = 0; y < levelData.gridHeight; y++)
         {
             for (int x = 0; x < levelData.gridWidth; x++)
             {
-                Vector2Int cellPos = new Vector2Int(x, levelData.gridHeight - 1 - y); // Flip Y to match Unity convention
-                
-                // Calculate cell rectangle
+                Vector2Int pos = new Vector2Int(x, y);
                 Rect cellRect = new Rect(
-                    offsetX + x * buttonSize,
-                    offsetY + y * buttonSize,
+                    area.x + offsetX + x * buttonSize,
+                    area.y + offsetY + (levelData.gridHeight - 1 - y) * buttonSize,
                     buttonSize,
                     buttonSize
                 );
                 
-                DrawGridCell(cellPos, cellRect, selectedSlither, isDraggingHandle, isDraggingHead, draggingSlither);
+                DrawGridCell(pos, cellRect, selectedSlither, isDraggingHandle, isDraggingHead, draggingSlither);
             }
         }
-        
-        // Handle mouse events
-        HandleMouseEvents(area, buttonSize, offsetX, offsetY);
     }
     
     /// <summary>
@@ -107,7 +117,40 @@ public class LevelEditorGrid
         // Create the button using manual positioning
         if (GUI.Button(cellRect, cellContent))
         {
-            OnCellClicked?.Invoke(pos);
+            // Check if user clicked on a hole to start dragging
+            var hole = levelData.holes.FirstOrDefault(h => h.position == pos);
+            if (hole != null && !isDraggingHole)
+            {
+                draggingHole = hole;
+                OnHoleDragStarted?.Invoke(hole, pos);
+            }
+            else
+            {
+                OnCellClicked?.Invoke(pos);
+            }
+        }
+        
+        // Handle mouse drag for holes
+        if (Event.current.type == EventType.MouseDrag && Event.current.button == 0)
+        {
+            if (cellRect.Contains(Event.current.mousePosition))
+            {
+                var hole = levelData.holes.FirstOrDefault(h => h.position == pos);
+                if (hole != null && !isDraggingHole)
+                {
+                    draggingHole = hole;
+                    OnHoleDragStarted?.Invoke(hole, pos);
+                }
+            }
+        }
+        
+        // Handle mouse up to end hole dragging
+        if (Event.current.type == EventType.MouseUp && Event.current.button == 0 && isDraggingHole)
+        {
+            if (cellRect.Contains(Event.current.mousePosition))
+            {
+                OnHoleDragEnded?.Invoke();
+            }
         }
         
         // Handle right-click
@@ -141,10 +184,21 @@ public class LevelEditorGrid
             return Color.Lerp(Color.cyan, Color.white, 0.3f);
         }
         
+        // Check if this is the hole preview position (during drag)
+        if (isDraggingHole && pos == holePreviewPosition)
+        {
+            return Color.Lerp(PREVIEW_COLOR, Color.white, 0.3f);
+        }
+        
         // Check if this cell contains a hole
         var hole = levelData.holes.FirstOrDefault(h => h.position == pos);
         if (hole != null)
         {
+            // If this hole is being dragged, make it semi-transparent
+            if (isDraggingHole && hole == draggingHole)
+            {
+                return Color.Lerp(hole.color.ToUnityColor(), Color.white, 0.7f);
+            }
             return Color.Lerp(hole.color.ToUnityColor(), Color.black, 0.3f);
         }
         
@@ -194,6 +248,12 @@ public class LevelEditorGrid
                 return "T"; // Tail
             else
                 return (index + 1).ToString(); // Body segment number
+        }
+        
+        // Check for hole preview position
+        if (isDraggingHole && pos == holePreviewPosition)
+        {
+            return "◐"; // Half-filled circle for hole preview
         }
         
         // Check for hole
@@ -262,6 +322,12 @@ public class LevelEditorGrid
                         hoveredCell = cellPos;
                         OnCellHovered?.Invoke(cellPos);
                     }
+                    
+                    // If dragging a hole, update preview position
+                    if (isDraggingHole && draggingHole != null)
+                    {
+                        OnHoleDragUpdated?.Invoke(cellPos);
+                    }
                 }
                 else
                 {
@@ -289,10 +355,32 @@ public class LevelEditorGrid
     public void ClearPreview()
     {
         previewPositions.Clear();
+        paintingPositions.Clear();
     }
     
     /// <summary>
-    /// Set positions being painted
+    /// Start hole dragging
+    /// </summary>
+    public void StartHoleDragging(HolePlacementData hole, Vector2Int position)
+    {
+        isDraggingHole = true;
+        draggingHole = hole;
+        holePreviewPosition = position;
+    }
+    
+    /// <summary>
+    /// Update hole preview position during drag
+    /// </summary>
+    public void UpdateHolePreview(Vector2Int position)
+    {
+        if (isDraggingHole)
+        {
+            holePreviewPosition = position;
+        }
+    }
+    
+    /// <summary>
+    /// Set painting positions for slither preview
     /// </summary>
     public void SetPaintingPositions(List<Vector2Int> positions)
     {
@@ -313,6 +401,26 @@ public class LevelEditorGrid
     public Vector2Int? GetHoveredCell()
     {
         return hoveredCell;
+    }
+    
+    /// <summary>
+    /// Set hole dragging state
+    /// </summary>
+    public void SetHoleDragging(bool dragging, HolePlacementData hole = null, Vector2Int previewPos = default)
+    {
+        isDraggingHole = dragging;
+        draggingHole = hole;
+        holePreviewPosition = previewPos;
+    }
+    
+    /// <summary>
+    /// End hole dragging
+    /// </summary>
+    public void EndHoleDragging()
+    {
+        isDraggingHole = false;
+        draggingHole = null;
+        holePreviewPosition = null;
     }
     
     /// <summary>
