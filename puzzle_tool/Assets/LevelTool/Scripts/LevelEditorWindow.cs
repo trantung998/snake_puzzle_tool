@@ -10,6 +10,7 @@ public class LevelEditorWindow : EditorWindow
     // Constants
     private const float LAYOUT_WIDTH_RATIO = 0.5f;
     private const string LAST_LEVEL_PATH_KEY = "SlitherLevelEditor_LastLevelPath";
+    private const string LEVEL_BROWSER_FOLDOUT_KEY = "SlitherLevelEditor_LevelBrowserFoldout";
 
     // Core components
     private LevelEditorGrid gridRenderer;
@@ -49,6 +50,7 @@ public class LevelEditorWindow : EditorWindow
     private Vector2 levelBrowserScrollPosition;
     private float lastLevelScanTime = 0f;
     private const float LEVEL_SCAN_INTERVAL = 2f; // Scan every 2 seconds
+    private bool showLevelBrowser = false; // Foldout state for level browser
 
     [MenuItem("Tools/Slither Level Editor")]
     public static void ShowWindow()
@@ -75,12 +77,18 @@ public class LevelEditorWindow : EditorWindow
 
         // Initialize level browser
         ScanForAvailableLevels();
+        
+        // Load foldout state
+        showLevelBrowser = EditorPrefs.GetBool(LEVEL_BROWSER_FOLDOUT_KEY, false);
     }
 
     private void OnDisable()
     {
         // Clean up event handlers
         CleanupEventHandlers();
+        
+        // Save foldout state
+        EditorPrefs.SetBool(LEVEL_BROWSER_FOLDOUT_KEY, showLevelBrowser);
     }
 
     private void SetupEventHandlers()
@@ -1493,7 +1501,7 @@ public class LevelEditorWindow : EditorWindow
     }
 
     /// <summary>
-    /// Draw the compact level browser in the inspector panel
+    /// Draw the compact level browser in the inspector panel using foldout style
     /// </summary>
     private void DrawLevelBrowserCompact()
     {
@@ -1503,40 +1511,96 @@ public class LevelEditorWindow : EditorWindow
             ScanForAvailableLevels();
         }
 
-        EditorGUILayout.LabelField("📁 Available Levels", EditorStyles.boldLabel);
+        // Foldout header with level count
+        string headerText = availableLevelPaths.Count == 0 
+            ? "📁 Available Levels (No levels found)" 
+            : $"📁 Available Levels ({availableLevelPaths.Count})";
 
-        if (availableLevelPaths.Count == 0)
+        bool newFoldoutState = EditorGUILayout.Foldout(showLevelBrowser, headerText, true);
+        
+        // Save state if changed
+        if (newFoldoutState != showLevelBrowser)
         {
-            EditorGUILayout.LabelField("No levels found", EditorStyles.miniLabel);
-            if (GUILayout.Button("🔄 Refresh", GUILayout.Height(20)))
+            showLevelBrowser = newFoldoutState;
+            EditorPrefs.SetBool(LEVEL_BROWSER_FOLDOUT_KEY, showLevelBrowser);
+        }
+
+        if (showLevelBrowser)
+        {
+            EditorGUI.indentLevel++;
+            
+            if (availableLevelPaths.Count == 0)
             {
-                ScanForAvailableLevels();
+                EditorGUILayout.HelpBox("No level files found in Resources or StreamingAssets folders.", MessageType.Info);
+                
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(20); // Add some indentation
+                if (GUILayout.Button("🔄 Refresh", GUILayout.Height(20)))
+                {
+                    ScanForAvailableLevels();
+                }
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
             }
-            return;
-        }
+            else
+            {
+                // Refresh button at the top
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("Recent levels:", EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("🔄", GUILayout.Width(25), GUILayout.Height(18)))
+                {
+                    ScanForAvailableLevels();
+                }
+                EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField($"{availableLevelPaths.Count} level(s)", EditorStyles.miniLabel);
-        GUILayout.FlexibleSpace();
-        if (GUILayout.Button("🔄", GUILayout.Width(25), GUILayout.Height(18)))
-        {
-            ScanForAvailableLevels();
-        }
-        EditorGUILayout.EndHorizontal();
+                EditorGUILayout.Space(2);
 
-        // Compact scrollable list (max 3 items visible)
-        levelBrowserScrollPosition = EditorGUILayout.BeginScrollView(levelBrowserScrollPosition, GUILayout.Height(80));
+                // Show up to 5 levels in compact format
+                int maxShow = Math.Min(5, availableLevelPaths.Count);
+                
+                for (int i = 0; i < maxShow; i++)
+                {
+                    DrawLevelListItemFoldout(availableLevelPaths[i], i);
+                }
 
-        for (int i = 0; i < Math.Min(availableLevelPaths.Count, 10); i++) // Show max 10 items
-        {
-            DrawLevelListItemCompact(availableLevelPaths[i], i);
-        }
+                // Show "more" indicator if there are additional levels
+                if (availableLevelPaths.Count > maxShow)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(20);
+                    EditorGUILayout.LabelField($"... and {availableLevelPaths.Count - maxShow} more levels", 
+                        EditorStyles.centeredGreyMiniLabel);
+                    if (GUILayout.Button("Show All", EditorStyles.miniButton, GUILayout.Width(60)))
+                    {
+                        // Option to show full browser or expand list
+                        ShowAllLevelsDialog();
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
 
-        EditorGUILayout.EndScrollView();
-
-        if (availableLevelPaths.Count > 10)
-        {
-            EditorGUILayout.LabelField($"... and {availableLevelPaths.Count - 10} more", EditorStyles.miniLabel);
+                // Quick actions
+                EditorGUILayout.Space(3);
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(20);
+                
+                if (GUILayout.Button("📁 Browse Folder", EditorStyles.miniButton))
+                {
+                    // Open folder browser to StreamingAssets
+                    string path = EditorUtility.OpenFolderPanel("Select Level Folder", 
+                        Application.streamingAssetsPath, "");
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        // Optionally change scan directory or just open folder
+                        EditorUtility.RevealInFinder(path);
+                    }
+                }
+                
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+            }
+            
+            EditorGUI.indentLevel--;
         }
     }
 
@@ -1598,6 +1662,59 @@ public class LevelEditorWindow : EditorWindow
         }
 
         EditorGUILayout.EndHorizontal();
+    }
+
+    /// <summary>
+    /// Draw a single level item in the foldout style (very compact)
+    /// </summary>
+    private void DrawLevelListItemFoldout(string levelPath, int index)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(levelPath);
+        DateTime lastModified = File.GetLastWriteTime(levelPath);
+
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.Space(20); // Indent for foldout content
+
+        // Level icon and name
+        string displayName = fileName.Length > 20 ? 
+            fileName.Substring(0, 17) + "..." : fileName;
+        
+        EditorGUILayout.LabelField($"📄 {displayName}", EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+
+        // Last modified time (compact format)
+        string timeText = lastModified.Date == DateTime.Today ? 
+            lastModified.ToString("HH:mm") : 
+            lastModified.ToString("MM/dd");
+        
+        EditorGUILayout.LabelField(timeText, EditorStyles.miniLabel, GUILayout.Width(35));
+
+        // Load button
+        if (GUILayout.Button("📂", GUILayout.Width(25), GUILayout.Height(18)))
+        {
+            LoadLevelFromPath(levelPath);
+        }
+
+        EditorGUILayout.EndHorizontal();
+    }
+
+    /// <summary>
+    /// Show dialog with all available levels when "Show All" is clicked
+    /// </summary>
+    private void ShowAllLevelsDialog()
+    {
+        string message = "Available Levels:\n\n";
+        
+        for (int i = 0; i < availableLevelPaths.Count; i++)
+        {
+            string fileName = Path.GetFileNameWithoutExtension(availableLevelPaths[i]);
+            DateTime modified = File.GetLastWriteTime(availableLevelPaths[i]);
+            message += $"{i + 1}. {fileName} (Modified: {modified:MMM dd, yyyy HH:mm})\n";
+        }
+        
+        message += $"\nTotal: {availableLevelPaths.Count} levels found.";
+        message += "\n\nTip: Use the foldout to see recent levels, or use 'Load' button in toolbar for file browser.";
+        
+        EditorUtility.DisplayDialog("All Available Levels", message, "OK");
     }
 
     /// <summary>
