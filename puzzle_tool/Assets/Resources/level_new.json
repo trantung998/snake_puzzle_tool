@@ -3,6 +3,7 @@
   "gridHeight": 8,
   "slithers": [
     {
+      "id": "d840514e-b5ee-4ce2-96ef-b5ab38b98e1f",
       "color": 1,
       "bodyPositions": [
         {
@@ -39,19 +40,20 @@
       "interactors": []
     },
     {
-      "color": 1,
+      "id": "a4d9fb19-1cc2-44c4-91ea-e6d1a32846f4",
+      "color": 4,
       "bodyPositions": [
         {
-          "x": 2,
-          "y": 7,
-          "magnitude": 7.28011,
-          "sqrMagnitude": 53
+          "x": 0,
+          "y": 6,
+          "magnitude": 6.0,
+          "sqrMagnitude": 36
         },
         {
-          "x": 2,
+          "x": 1,
           "y": 6,
-          "magnitude": 6.3245554,
-          "sqrMagnitude": 40
+          "magnitude": 6.08276272,
+          "sqrMagnitude": 37
         }
       ],
       "interactors": []

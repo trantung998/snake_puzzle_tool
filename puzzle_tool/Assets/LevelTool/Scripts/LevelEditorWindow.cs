@@ -9,6 +9,7 @@ public class LevelEditorWindow : EditorWindow
 {
     // Constants
     private const float LAYOUT_WIDTH_RATIO = 0.5f;
+    private const string LAST_LEVEL_PATH_KEY = "SlitherLevelEditor_LastLevelPath";
 
     // Core components
     private LevelEditorGrid gridRenderer;
@@ -43,6 +44,12 @@ public class LevelEditorWindow : EditorWindow
     private Vector2Int originalHolePosition;
     private Vector2Int? previewHolePosition = null;
 
+    // Level browser state
+    private List<string> availableLevelPaths = new List<string>();
+    private Vector2 levelBrowserScrollPosition;
+    private float lastLevelScanTime = 0f;
+    private const float LEVEL_SCAN_INTERVAL = 2f; // Scan every 2 seconds
+
     [MenuItem("Tools/Slither Level Editor")]
     public static void ShowWindow()
     {
@@ -58,6 +65,16 @@ public class LevelEditorWindow : EditorWindow
 
         // Subscribe to events
         SetupEventHandlers();
+
+        // Attempt to load the last opened level
+        string lastPath = EditorPrefs.GetString(LAST_LEVEL_PATH_KEY, "");
+        if (!string.IsNullOrEmpty(lastPath))
+        {
+            LoadLevelFromPath(lastPath);
+        }
+
+        // Initialize level browser
+        ScanForAvailableLevels();
     }
 
     private void OnDisable()
@@ -151,6 +168,10 @@ public class LevelEditorWindow : EditorWindow
         if (currentLevelData == null)
         {
             EditorGUILayout.HelpBox("Load a level file or create a new one to begin.", MessageType.Info);
+            
+            // Draw level browser when no level is loaded
+            DrawLevelBrowser();
+            
             if (GUILayout.Button("Create New Level"))
             {
                 CreateNewLevel();
@@ -263,6 +284,11 @@ public class LevelEditorWindow : EditorWindow
                 Debug.Log("Inspector reinitialized");
             }
         }
+
+        EditorGUILayout.Space();
+        
+        // Add Level Browser at the bottom of the inspector
+        DrawLevelBrowserCompact();
 
         EditorGUILayout.EndVertical();
 
@@ -405,6 +431,9 @@ public class LevelEditorWindow : EditorWindow
         currentSlitherPoints.Clear();
         CancelHandleDrag();
 
+        // Clear the last path preference when creating a new unsaved level
+        EditorPrefs.DeleteKey(LAST_LEVEL_PATH_KEY);
+
         Debug.Log("New level created. Edit and use 'Save As...' to create a file.");
     }
 
@@ -413,7 +442,23 @@ public class LevelEditorWindow : EditorWindow
         string path = EditorUtility.OpenFilePanel("Load Level JSON", Application.streamingAssetsPath, "json");
         if (!string.IsNullOrEmpty(path))
         {
-            currentLevelData = JsonDataService.Load(path);
+            LoadLevelFromPath(path);
+        }
+    }
+
+    private void LoadLevelFromPath(string path)
+    {
+        if (!File.Exists(path))
+        {
+            Debug.LogWarning($"Could not auto-load level. File not found at: {path}");
+            EditorPrefs.DeleteKey(LAST_LEVEL_PATH_KEY); // Clean up invalid path
+            return;
+        }
+
+        LevelData loadedData = JsonDataService.Load(path);
+        if (loadedData != null)
+        {
+            currentLevelData = loadedData;
             currentPath = path;
             selectedSlither = null;
             needsComponentReinitialization = true;
@@ -422,6 +467,9 @@ public class LevelEditorWindow : EditorWindow
             isPaintingSlither = false;
             currentSlitherPoints.Clear();
             CancelHandleDrag();
+
+            // Store the valid path for the next session
+            EditorPrefs.SetString(LAST_LEVEL_PATH_KEY, path);
 
             // Check and show a warning if the level is invalid
             string errorMessage;
@@ -436,7 +484,13 @@ public class LevelEditorWindow : EditorWindow
                 FixLevelIssues();
             }
 
+            Debug.Log($"<color=cyan>Successfully loaded level: {Path.GetFileName(path)}</color>");
             Repaint();
+        }
+        else
+        {
+            // If loading failed (e.g., corrupted file), clear the pref
+            EditorPrefs.DeleteKey(LAST_LEVEL_PATH_KEY);
         }
     }
 
@@ -534,6 +588,7 @@ public class LevelEditorWindow : EditorWindow
         if (JsonDataService.Save(currentLevelData, path))
         {
             currentPath = path;
+            EditorPrefs.SetString(LAST_LEVEL_PATH_KEY, path); // Remember this path for next session
             AssetDatabase.Refresh();
             Debug.Log($"Level saved to: {path}");
         }
@@ -1358,5 +1413,210 @@ public class LevelEditorWindow : EditorWindow
 
         return currentLevelData.slithers.FirstOrDefault(slither =>
             slither.bodyPositions.Contains(position));
+    }
+
+    // --- LEVEL BROWSER ---
+
+    /// <summary>
+    /// Scan for available level files in the Resources and StreamingAssets folders
+    /// </summary>
+    private void ScanForAvailableLevels()
+    {
+        availableLevelPaths.Clear();
+
+        // Scan StreamingAssets folder (common location for level files)
+        string streamingAssetsPath = Application.streamingAssetsPath;
+        if (Directory.Exists(streamingAssetsPath))
+        {
+            var jsonFiles = Directory.GetFiles(streamingAssetsPath, "*.json", SearchOption.AllDirectories);
+            availableLevelPaths.AddRange(jsonFiles);
+        }
+
+        // Scan Assets/Resources folder
+        string resourcesPath = Path.Combine(Application.dataPath, "Resources");
+        if (Directory.Exists(resourcesPath))
+        {
+            var jsonFiles = Directory.GetFiles(resourcesPath, "*.json", SearchOption.AllDirectories);
+            availableLevelPaths.AddRange(jsonFiles);
+        }
+
+        // Sort by last write time (most recent first)
+        availableLevelPaths.Sort((a, b) => File.GetLastWriteTime(b).CompareTo(File.GetLastWriteTime(a)));
+
+        lastLevelScanTime = (float)EditorApplication.timeSinceStartup;
+    }
+
+    /// <summary>
+    /// Draw the level browser when no level is loaded (full view)
+    /// </summary>
+    private void DrawLevelBrowser()
+    {
+        // Periodically refresh the level list
+        if (EditorApplication.timeSinceStartup - lastLevelScanTime > LEVEL_SCAN_INTERVAL)
+        {
+            ScanForAvailableLevels();
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("📁 Available Levels", EditorStyles.boldLabel);
+
+        if (availableLevelPaths.Count == 0)
+        {
+            EditorGUILayout.HelpBox("No level files found in Resources or StreamingAssets folders.", MessageType.Info);
+            if (GUILayout.Button("🔄 Refresh"))
+            {
+                ScanForAvailableLevels();
+            }
+            return;
+        }
+
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField($"Found {availableLevelPaths.Count} level(s)", EditorStyles.miniLabel);
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button("🔄 Refresh", GUILayout.Width(70)))
+        {
+            ScanForAvailableLevels();
+        }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space();
+
+        // Scrollable list of levels
+        levelBrowserScrollPosition = EditorGUILayout.BeginScrollView(levelBrowserScrollPosition, GUILayout.Height(200));
+
+        for (int i = 0; i < availableLevelPaths.Count; i++)
+        {
+            DrawLevelListItem(availableLevelPaths[i], i);
+        }
+
+        EditorGUILayout.EndScrollView();
+    }
+
+    /// <summary>
+    /// Draw the compact level browser in the inspector panel
+    /// </summary>
+    private void DrawLevelBrowserCompact()
+    {
+        // Periodically refresh the level list
+        if (EditorApplication.timeSinceStartup - lastLevelScanTime > LEVEL_SCAN_INTERVAL)
+        {
+            ScanForAvailableLevels();
+        }
+
+        EditorGUILayout.LabelField("📁 Available Levels", EditorStyles.boldLabel);
+
+        if (availableLevelPaths.Count == 0)
+        {
+            EditorGUILayout.LabelField("No levels found", EditorStyles.miniLabel);
+            if (GUILayout.Button("🔄 Refresh", GUILayout.Height(20)))
+            {
+                ScanForAvailableLevels();
+            }
+            return;
+        }
+
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField($"{availableLevelPaths.Count} level(s)", EditorStyles.miniLabel);
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button("🔄", GUILayout.Width(25), GUILayout.Height(18)))
+        {
+            ScanForAvailableLevels();
+        }
+        EditorGUILayout.EndHorizontal();
+
+        // Compact scrollable list (max 3 items visible)
+        levelBrowserScrollPosition = EditorGUILayout.BeginScrollView(levelBrowserScrollPosition, GUILayout.Height(80));
+
+        for (int i = 0; i < Math.Min(availableLevelPaths.Count, 10); i++) // Show max 10 items
+        {
+            DrawLevelListItemCompact(availableLevelPaths[i], i);
+        }
+
+        EditorGUILayout.EndScrollView();
+
+        if (availableLevelPaths.Count > 10)
+        {
+            EditorGUILayout.LabelField($"... and {availableLevelPaths.Count - 10} more", EditorStyles.miniLabel);
+        }
+    }
+
+    /// <summary>
+    /// Draw a single level item in the list (full view)
+    /// </summary>
+    private void DrawLevelListItem(string levelPath, int index)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(levelPath);
+        string relativePath = GetRelativePath(levelPath);
+        DateTime lastModified = File.GetLastWriteTime(levelPath);
+
+        EditorGUILayout.BeginVertical("box");
+        EditorGUILayout.BeginHorizontal();
+
+        // Level info
+        EditorGUILayout.BeginVertical();
+        EditorGUILayout.LabelField(fileName, EditorStyles.boldLabel);
+        EditorGUILayout.LabelField(relativePath, EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"Modified: {lastModified:MMM dd, yyyy HH:mm}", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.FlexibleSpace();
+
+        // Load button
+        if (GUILayout.Button("📂 Load", GUILayout.Width(60), GUILayout.Height(40)))
+        {
+            LoadLevelFromPath(levelPath);
+        }
+
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+
+        EditorGUILayout.Space(2);
+    }
+
+    /// <summary>
+    /// Draw a single level item in the list (compact view)
+    /// </summary>
+    private void DrawLevelListItemCompact(string levelPath, int index)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(levelPath);
+        DateTime lastModified = File.GetLastWriteTime(levelPath);
+
+        EditorGUILayout.BeginHorizontal("box");
+
+        // Level info
+        EditorGUILayout.BeginVertical();
+        EditorGUILayout.LabelField(fileName, EditorStyles.miniLabel);
+        EditorGUILayout.LabelField(lastModified.ToString("MMM dd, HH:mm"), EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.FlexibleSpace();
+
+        // Load button
+        if (GUILayout.Button("📂", GUILayout.Width(25), GUILayout.Height(25)))
+        {
+            LoadLevelFromPath(levelPath);
+        }
+
+        EditorGUILayout.EndHorizontal();
+    }
+
+    /// <summary>
+    /// Get relative path from the project root
+    /// </summary>
+    private string GetRelativePath(string fullPath)
+    {
+        string dataPath = Application.dataPath;
+        if (fullPath.StartsWith(dataPath))
+        {
+            return "Assets" + fullPath.Substring(dataPath.Length).Replace('\\', '/');
+        }
+        
+        string streamingAssetsPath = Application.streamingAssetsPath;
+        if (fullPath.StartsWith(streamingAssetsPath))
+        {
+            return "StreamingAssets" + fullPath.Substring(streamingAssetsPath.Length).Replace('\\', '/');
+        }
+
+        return Path.GetFileName(fullPath);
     }
 }
