@@ -8,18 +8,6 @@
       "bodyPositions": [
         {
           "x": 3,
-          "y": 7,
-          "magnitude": 7.615773,
-          "sqrMagnitude": 58
-        },
-        {
-          "x": 3,
-          "y": 6,
-          "magnitude": 6.708204,
-          "sqrMagnitude": 45
-        },
-        {
-          "x": 3,
           "y": 5,
           "magnitude": 5.83095169,
           "sqrMagnitude": 34
@@ -31,13 +19,36 @@
           "sqrMagnitude": 25
         },
         {
-          "x": 4,
-          "y": 4,
-          "magnitude": 5.656854,
-          "sqrMagnitude": 32
+          "x": 3,
+          "y": 3,
+          "magnitude": 4.2426405,
+          "sqrMagnitude": 18
+        },
+        {
+          "x": 3,
+          "y": 2,
+          "magnitude": 3.60555124,
+          "sqrMagnitude": 13
+        },
+        {
+          "x": 3,
+          "y": 1,
+          "magnitude": 3.1622777,
+          "sqrMagnitude": 10
         }
       ],
-      "interactors": []
+      "interactors": [
+        {
+          "$type": "ChainInteractor, Assembly-CSharp",
+          "hitCount": 1,
+          "Type": "ChainInteractor"
+        },
+        {
+          "$type": "CocoonInteractor, Assembly-CSharp",
+          "hitCount": 1,
+          "Type": "CocoonInteractor"
+        }
+      ]
     },
     {
       "id": "a4d9fb19-1cc2-44c4-91ea-e6d1a32846f4",
